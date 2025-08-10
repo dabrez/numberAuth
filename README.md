@@ -9,6 +9,7 @@ This Flask application provides a service to verify the identity of a caller by 
 *   **Bulk Identity Verification:** Verify the identities of all users in the database.
 *   **Mock API:** Includes a mock Solidarity Tech API for testing purposes.
 *   **Flexible Database:** Can use either a local mock database or the Solidarity Tech API.
+*   **Lookup Cache:** Recent lookups are cached in a local SQLite database to reduce Twilio API calls.
 *   **Dockerized:** Comes with a `Dockerfile` for easy deployment.
 
 ## Setup and Installation
@@ -39,10 +40,12 @@ Using Docker is the easiest way to get the application running.
     SOLIDARITY_TECH_API_KEY=your_solidarity_tech_api_key
     TWILIO_ACCOUNT_SID=your_twilio_account_sid
     TWILIO_AUTH_TOKEN=your_twilio_auth_token
+    CACHE_TTL_SECONDS=3600
     ```
 
     *   `SOLIDARITY_TECH_API_KEY`: Your API key for the Solidarity Tech API. If you don't have one, the application will use a local mock database.
     *   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`: Your Twilio Account SID and Auth Token. You can find these on your [Twilio Console](https://www.twilio.com/console).
+    *   `CACHE_TTL_SECONDS` (optional): How long, in seconds, to store lookup results in the cache (default: 3600).
 
 3.  **Build and run the Docker container:**
 
@@ -81,10 +84,12 @@ The application will be available at `http://127.0.0.1:5000`.
     SOLIDARITY_TECH_API_KEY=your_solidarity_tech_api_key
     TWILIO_ACCOUNT_SID=your_twilio_account_sid
     TWILIO_AUTH_TOKEN=your_twilio_auth_token
+    CACHE_TTL_SECONDS=3600
     ```
 
     *   `SOLIDARITY_TECH_API_KEY`: Your API key for the Solidarity Tech API. If you don't have one, the application will use a local mock database.
     *   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`: Your Twilio Account SID and Auth Token. You can find these on your [Twilio Console](https://www.twilio.com/console).
+    *   `CACHE_TTL_SECONDS` (optional): How long, in seconds, to store lookup results in the cache (default: 3600).
 
 4.  **Run the application:**
 
