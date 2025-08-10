@@ -1,5 +1,7 @@
 # Import necessary libraries
 import os
+import sqlite3
+import time
 from flask import Flask, request, jsonify
 from twilio.rest import Client
 import requests
@@ -30,12 +32,65 @@ client = Client(account_sid, auth_token)
 # Global variable to store the last looked-up caller name
 stored_caller_name = None
 
+# Set up SQLite cache to store recent lookups
+DB_PATH = "lookup_cache.db"
+# Default cache TTL is one hour; can be overridden with CACHE_TTL_SECONDS env var
+CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", 3600))
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute(
+    "CREATE TABLE IF NOT EXISTS lookup_cache (phone_number TEXT PRIMARY KEY, name TEXT, timestamp INTEGER)"
+)
+conn.commit()
+
 # A local mock database of phone numbers and names.
 # This is used as a fallback if the Solidarity Tech API key is not provided.
 local_mock_database = {
     "+15551234567": "John Doe",
     "+15557654321": "Jane Smith"
 }
+
+
+def get_cached_name(phone_number):
+    """Return cached name if entry is fresh, else None."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT name, timestamp FROM lookup_cache WHERE phone_number = ?",
+        (phone_number,),
+    )
+    row = cursor.fetchone()
+    if row:
+        name, ts = row
+        if time.time() - ts < CACHE_TTL_SECONDS:
+            return name
+        # Remove expired entry
+        cursor.execute("DELETE FROM lookup_cache WHERE phone_number = ?", (phone_number,))
+        conn.commit()
+    return None
+
+
+def cache_name(phone_number, name):
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO lookup_cache (phone_number, name, timestamp) VALUES (?, ?, ?)",
+        (phone_number, name, int(time.time())),
+    )
+    conn.commit()
+
+
+def fetch_caller_name_with_cache(phone_number):
+    """Fetch caller name using cache, falling back to Twilio lookup."""
+    cached = get_cached_name(phone_number)
+    if cached:
+        return cached
+    phone_number_info = client.lookups.v2.phone_numbers(phone_number).fetch(
+        fields="caller_name"
+    )
+    caller_name = phone_number_info.caller_name
+    if caller_name:
+        cache_name(phone_number, caller_name)
+    return caller_name
 
 # This route simulates the Solidarity Tech API.
 # It returns a static list of users.
@@ -70,11 +125,7 @@ def lookup_phone_number():
         return jsonify({"error": "phone_number parameter is required"}), 400
 
     try:
-        # Use the Twilio Lookup API v2 to fetch the caller name.
-        # Note: Caller Name lookup is primarily available for US numbers and is a paid feature.
-        # Ensure your Twilio account has Caller Name enabled and sufficient balance.
-        phone_number_info = client.lookups.v2.phone_numbers(phone_number).fetch(fields="caller_name")
-        caller_name = phone_number_info.caller_name
+        caller_name = fetch_caller_name_with_cache(phone_number)
         stored_caller_name = caller_name  # Store the caller name in the global variable
 
         # Return the caller name if found
@@ -131,10 +182,9 @@ def verify_identity():
     if not claimed_name:
         return jsonify({"error": "Phone number not found in database"}), 404
 
-    # Get the caller name from the Twilio lookup
+    # Get the caller name using the cache-enhanced lookup
     try:
-        phone_number_info = client.lookups.v2.phone_numbers(phone_number).fetch(fields="caller_name")
-        caller_name = phone_number_info.caller_name
+        caller_name = fetch_caller_name_with_cache(phone_number)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -169,9 +219,8 @@ def verify_all_identities():
     # Iterate over all users in the database
     for phone_number, claimed_name in user_data.items():
         try:
-            # Get the caller name from the Twilio lookup
-            phone_number_info = client.lookups.v2.phone_numbers(phone_number).fetch(fields="caller_name")
-            caller_name = phone_number_info.caller_name
+            # Get the caller name using the cache-enhanced lookup
+            caller_name = fetch_caller_name_with_cache(phone_number)
         except Exception as e:
             # Handle exceptions, such as an invalid phone number
             results.append({
